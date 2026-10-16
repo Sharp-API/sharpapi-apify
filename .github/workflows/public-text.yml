@@ -27,9 +27,12 @@ permissions:
   pull-requests: read
   statuses: write
 
+# A pull request run rescans the whole pull request, so a newer one may cancel an
+# older one. Every push gets its own group: a push run only scans that push, so
+# cancelling or replacing one would leave its commits unscanned.
 concurrency:
-  group: public-text-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: public-text-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   scan:
@@ -116,7 +119,7 @@ jobs:
           EXEMPT = ((re.compile(r"(^|/)\.mergify\.ya?ml$"), {"crew-process"}),
                     (re.compile(r"\.(csv|tsv)$|(^|/)fixtures/"), {"people"}))
 
-          hits, surfaces = [], 0
+          hits, surfaces, incomplete = [], 0, []
 
           def check(where, text, path=None, line_numbers=None):
               global surfaces
@@ -173,9 +176,17 @@ jobs:
               surfaces += 1
               for category, line in scan_branch(pr["head"]["ref"]):
                   hits.append(("branch name", category, None, line))
-              for c in get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}/commits?per_page=100"):
+              commits = get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}/commits?per_page=100")
+              files = get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}/files?per_page=100")
+              # The API stops listing at 250 commits and 3000 files; never call a
+              # partial read clean.
+              if len(commits) < pr["commits"]:
+                  incomplete.append(f"{len(commits)} of {pr['commits']} commits")
+              if len(files) < pr["changed_files"]:
+                  incomplete.append(f"{len(files)} of {pr['changed_files']} files")
+              for c in commits:
                   check(f"commit {c['sha'][:12]} message", c["commit"]["message"])
-              check_files(get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}/files?per_page=100"))
+              check_files(files)
           else:
               before = ENV.get("BEFORE") or ""
               if not before or set(before) == {"0"}:
@@ -184,6 +195,11 @@ jobs:
               else:
                   cmp = get(f"repos/{ENV['REPO']}/compare/{before}...{head}")
                   commits, files = cmp["commits"], cmp.get("files", [])
+                  # A compare lists at most 250 commits and 300 files, unpaged here.
+                  if len(commits) < cmp.get("total_commits", 0):
+                      incomplete.append(f"{len(commits)} of {cmp['total_commits']} commits")
+                  if len(files) >= 300:
+                      incomplete.append("300 or more files")
               for c in commits:
                   check(f"commit {c['sha'][:12]} message", c["commit"]["message"])
               check_files(files)
@@ -192,6 +208,11 @@ jobs:
               return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A") \
                           .replace(":", "%3A").replace(",", "%2C")
 
+          if incomplete:
+              print("::error::Too large to scan completely (" + "; ".join(incomplete) + "). "
+                    "Split the change into smaller pull requests.")
+              set_status(head, False, "Too large to scan completely; split the change")
+              sys.exit(1)
           if hits:
               for where, category, path, line in hits:
                   if path:
