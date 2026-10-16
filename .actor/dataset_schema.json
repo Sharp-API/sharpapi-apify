@@ -1,0 +1,93 @@
+{
+  "actorSpecification": 1,
+  "fields": {},
+  "views": {
+    "overview": {
+      "title": "Odds",
+      "transformation": {
+        "fields": [
+          "event_id",
+          "sport",
+          "league",
+          "home_team",
+          "away_team",
+          "event_start_time",
+          "sportsbook",
+          "market_type",
+          "selection",
+          "line",
+          "odds_american",
+          "odds_decimal",
+          "odds_probability",
+          "is_live",
+          "timestamp"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "event_id": {
+            "label": "Event",
+            "format": "text"
+          },
+          "sport": {
+            "label": "Sport",
+            "format": "text"
+          },
+          "league": {
+            "label": "League",
+            "format": "text"
+          },
+          "home_team": {
+            "label": "Home team",
+            "format": "text"
+          },
+          "away_team": {
+            "label": "Away team",
+            "format": "text"
+          },
+          "event_start_time": {
+            "label": "Start time",
+            "format": "date"
+          },
+          "sportsbook": {
+            "label": "Sportsbook",
+            "format": "text"
+          },
+          "market_type": {
+            "label": "Market",
+            "format": "text"
+          },
+          "selection": {
+            "label": "Selection",
+            "format": "text"
+          },
+          "line": {
+            "label": "Line",
+            "format": "number"
+          },
+          "odds_american": {
+            "label": "American odds",
+            "format": "number"
+          },
+          "odds_decimal": {
+            "label": "Decimal odds",
+            "format": "number"
+          },
+          "odds_probability": {
+            "label": "Implied probability",
+            "format": "number"
+          },
+          "is_live": {
+            "label": "Live",
+            "format": "boolean"
+          },
+          "timestamp": {
+            "label": "Refreshed",
+            "format": "date"
+          }
+        }
+      }
+    }
+  }
+}

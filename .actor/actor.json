@@ -1,0 +1,14 @@
+{
+  "actorSpecification": 1,
+  "name": "sportsbook-odds",
+  "title": "Sportsbook Odds (SharpAPI)",
+  "description": "Pull current sportsbook odds from SharpAPI into a dataset, one row per price. Bring your own SharpAPI key; a free key covers DraftKings and FanDuel.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "input": "./input_schema.json",
+  "output": "./output_schema.json",
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  },
+  "dockerfile": "./Dockerfile"
+}

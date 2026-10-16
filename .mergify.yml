@@ -1,0 +1,43 @@
+# CI validates, a reviewer signs off, Mergify merges.
+#
+# Two positive gates, both required: the automated review verdict check AND a
+# label that only a maintainer applies after reading the change. This repo is
+# public, so it takes that two-gate rule rather than merging on a clean verdict
+# alone. The brake labels below stop the queue while any one of them is present.
+#
+# The required test checks are the jobs of .github/workflows/test.yml, one per
+# Node version in its matrix. Change the two lists together: a required check
+# that never reports blocks every merge.
+merge_queue:
+  mode: serial
+  max_parallel_checks: 1
+queue_rules:
+- name: reviewed
+  batch_size: 1
+  merge_method: squash
+  update_method: merge
+  branch_protection_injection_mode: queue
+  queue_conditions:
+  - base=main
+  - -draft
+  - check-success=@sharp-resolver/crew-verdict
+  - label=human-reviewed
+  - -label=do-not-merge
+  - -label=needs-human
+  - -label=maintainer:hold
+  - -label=crew-gate:hold
+  - check-success=test (20)
+  - check-success=test (22)
+pull_request_rules:
+- name: Queue resolver-approved changes
+  conditions:
+  - base=main
+  - -draft
+  - check-success=@sharp-resolver/crew-verdict
+  - label=human-reviewed
+  - -label=do-not-merge
+  - -label=needs-human
+  - -label=maintainer:hold
+  - -label=crew-gate:hold
+  actions:
+    queue: {}

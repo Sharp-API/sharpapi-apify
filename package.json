@@ -1,0 +1,25 @@
+{
+  "name": "sharpapi-apify",
+  "version": "0.1.0",
+  "description": "Apify actor that pulls live sportsbook odds from SharpAPI into an Apify dataset. Bring your own SharpAPI key.",
+  "type": "module",
+  "main": "src/main.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@sharp-api/client": "^0.4.2",
+    "apify": "^3.7.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sharp-API/sharpapi-apify"
+  },
+  "homepage": "https://sharpapi.io"
+}

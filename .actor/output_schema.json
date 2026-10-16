@@ -1,0 +1,12 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "Sportsbook Odds (SharpAPI) output",
+  "properties": {
+    "prices": {
+      "type": "string",
+      "title": "Prices",
+      "description": "One row per price at one sportsbook, in the default dataset.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}
