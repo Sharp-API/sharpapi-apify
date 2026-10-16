@@ -1,0 +1,207 @@
+name: Public text
+
+# Fails a pull request, or a push to main, that would put internal detail into
+# this public repository: the PR's title, body, branch name and commit
+# messages, the names of the files it touches and every line it adds.
+#
+# The patterns are not in this repository. They arrive base64-encoded in the
+# PUBTEXT_GUARD organization secret, so publishing this file publishes none of
+# them. A hit
+# is reported as category, file and line only, never the matched text,
+# because Actions logs are public.
+#
+# pull_request_target runs this file as it is on main, never a pull request's
+# edited copy, so a pull request cannot change the check or read the secret.
+# The pull request is read through the API as plain text; none of its code is
+# checked out or run. The verdict is posted as the `public-text` commit
+# status on the pull request's head commit, which branch rules can require.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: public-text-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Scan for internal detail
+        env:
+          PUBTEXT_GUARD: ${{ secrets.PUBTEXT_GUARD }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: python3 {0}
+        run: |
+          import base64, hashlib, json, os, re, sys, urllib.request
+
+          ENV = os.environ
+          API = "https://api.github.com"
+          HEADERS = {"Authorization": f"Bearer {ENV['GH_TOKEN']}",
+                     "X-GitHub-Api-Version": "2022-11-28"}
+
+          def request(url, accept="application/vnd.github+json", data=None):
+              req = urllib.request.Request(url, data=data, headers={**HEADERS, "Accept": accept})
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  return resp.read(), resp.headers.get("Link", "")
+
+          def get(path):
+              """One object, or every page of a list."""
+              url, items = f"{API}/{path}", []
+              while url:
+                  body, link = request(url)
+                  data = json.loads(body)
+                  if not isinstance(data, list):
+                      return data
+                  items += data
+                  nxt = re.search(r'<([^>]+)>;\s*rel="next"', link)
+                  url = nxt.group(1) if nxt else None
+              return items
+
+          def set_status(sha, ok, text):
+              if not sha:
+                  return
+              payload = json.dumps({"state": "success" if ok else "failure", "context": "public-text",
+                                    "description": text[:140], "target_url": ENV["RUN_URL"]}).encode()
+              request(f"{API}/repos/{ENV['REPO']}/statuses/{sha}", data=payload)
+
+          head = ENV["AFTER"]
+          if ENV["EVENT"] == "pull_request_target":
+              pr = get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}")
+              head = pr["head"]["sha"]
+
+          # The guard is Python source held base64-encoded in a secret, so the log
+          # masks one opaque string rather than every line of the source. It is run
+          # from memory under a filename that does not exist, so a traceback can
+          # never print its lines.
+          encoded = ENV.get("PUBTEXT_GUARD", "").strip()
+          if not encoded:
+              if ENV.get("ACTOR") == "dependabot[bot]":
+                  print("::notice::PUBTEXT_GUARD is not available to this Dependabot run; not checked.")
+                  set_status(head, True, "Dependabot run: guard unavailable, not checked")
+                  sys.exit(0)
+              print("::error::The PUBTEXT_GUARD secret is missing or empty, so nothing could be checked.")
+              set_status(head, False, "Guard secret missing; nothing was checked")
+              sys.exit(1)
+          guard = {"__name__": "pubtext_guard"}
+          try:
+              raw_guard = base64.b64decode(encoded, validate=True)
+              exec(compile(raw_guard.decode("utf-8"), "<pubtext-guard>", "exec"), guard)
+              scan, scan_branch = guard["scan"], guard["scan_branch"]
+          except Exception as exc:  # report the type only: the message could quote a pattern
+              print(f"::error::The guard failed to load ({type(exc).__name__}).")
+              set_status(head, False, "Guard failed to load")
+              sys.exit(1)
+          print(f"guard sha256 {hashlib.sha256(raw_guard).hexdigest()[:12]}")
+
+          # Categories expected in certain files, so they do not fail added lines there:
+          # a Mergify config must name the review labels its merge rules read, and data
+          # files and API fixtures carry real athletes' names, which can match a person's.
+          EXEMPT = ((re.compile(r"(^|/)\.mergify\.ya?ml$"), {"crew-process"}),
+                    (re.compile(r"\.(csv|tsv)$|(^|/)fixtures/"), {"people"}))
+
+          hits, surfaces = [], 0
+
+          def check(where, text, path=None, line_numbers=None):
+              global surfaces
+              surfaces += 1
+              exempt = set()
+              if line_numbers:
+                  for rx, categories in EXEMPT:
+                      if rx.search(path):
+                          exempt |= categories
+              for category, line in scan(text or ""):
+                  if category in exempt:
+                      continue
+                  real = line_numbers[line - 1] if line_numbers else line
+                  hits.append((where, category, path, real))
+
+          HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+          def added_lines(patch):
+              """(new-file line number, text) for every added line of a unified diff."""
+              number = None
+              for line in patch.split("\n"):
+                  hunk = HUNK.match(line)
+                  if hunk:
+                      number = int(hunk.group(1))
+                  elif number is None or line.startswith(("-", "\\")):
+                      continue
+                  elif line.startswith("+"):
+                      yield number, line[1:]
+                      number += 1
+                  else:
+                      number += 1
+
+          def check_files(files):
+              for f in files:
+                  path = f["filename"]
+                  check("file path", path)
+                  if f.get("status") == "removed":
+                      continue
+                  if "patch" in f:
+                      pairs = list(added_lines(f["patch"]))
+                  else:
+                      # No inline diff: a binary file, or one too large for the API to
+                      # inline. Scan the whole file when it is text.
+                      raw, _ = request(f["raw_url"], accept="application/vnd.github.raw")
+                      if b"\x00" in raw[:8192]:
+                          continue
+                      pairs = list(enumerate(raw.decode("utf-8", "replace").split("\n"), 1))
+                  if pairs:
+                      check("added lines", "\n".join(t for _, t in pairs), path, [n for n, _ in pairs])
+
+          if ENV["EVENT"] == "pull_request_target":
+              check("pull request title", pr["title"])
+              check("pull request body", pr.get("body") or "")
+              surfaces += 1
+              for category, line in scan_branch(pr["head"]["ref"]):
+                  hits.append(("branch name", category, None, line))
+              for c in get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}/commits?per_page=100"):
+                  check(f"commit {c['sha'][:12]} message", c["commit"]["message"])
+              check_files(get(f"repos/{ENV['REPO']}/pulls/{ENV['PR']}/files?per_page=100"))
+          else:
+              before = ENV.get("BEFORE") or ""
+              if not before or set(before) == {"0"}:
+                  one = get(f"repos/{ENV['REPO']}/commits/{head}")
+                  commits, files = [one], one.get("files", [])
+              else:
+                  cmp = get(f"repos/{ENV['REPO']}/compare/{before}...{head}")
+                  commits, files = cmp["commits"], cmp.get("files", [])
+              for c in commits:
+                  check(f"commit {c['sha'][:12]} message", c["commit"]["message"])
+              check_files(files)
+
+          def prop(value):
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A") \
+                          .replace(":", "%3A").replace(",", "%2C")
+
+          if hits:
+              for where, category, path, line in hits:
+                  if path:
+                      print(f"::error file={prop(path)},line={line}::{category} in {where}")
+                  else:
+                      print(f"::error::{category} in {where}, line {line}")
+              print(f"public-text: {len(hits)} hit(s) in {surfaces} surfaces. The matched text is "
+                    "deliberately not shown. Rewrite for a customer: name no internal system, host, "
+                    "path, person, private repository or ticket number.")
+              set_status(head, False, f"{len(hits)} internal-detail hit(s); see the run")
+              sys.exit(1)
+          print(f"public-text: clean, {surfaces} surfaces scanned")
+          set_status(head, True, f"Clean: {surfaces} surfaces scanned")
