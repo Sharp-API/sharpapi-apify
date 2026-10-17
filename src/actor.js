@@ -2,8 +2,6 @@
 // dependencies as arguments so the tests can drive it without the network
 // or the Apify platform.
 
-export const PRICING_URL = 'https://sharpapi.io/pricing'
-export const DASHBOARD_URL = 'https://sharpapi.io/dashboard'
 export const DEFAULT_SPORTSBOOKS = ['draftkings', 'fanduel']
 export const DEFAULT_MAX_ITEMS = 1000
 export const MARKET_TYPES = ['moneyline', 'spread', 'total']
@@ -51,7 +49,7 @@ export function normalizeInput(raw) {
   const apiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : ''
   if (!apiKey) {
     throw new FatalError(
-      `Add your SharpAPI key in the "SharpAPI key" field. You can get a free key at ${PRICING_URL}.`,
+      'Add your SharpAPI key in the "SharpAPI key" field. The free SharpAPI plan covers DraftKings and FanDuel.',
     )
   }
 
@@ -114,14 +112,20 @@ function planTitle(tier) {
   return tier.charAt(0).toUpperCase() + tier.slice(1)
 }
 
+// Cut every http(s) address out of text we did not write, so a link in an
+// API error can never reach a run message (Apify Store terms 2.2.4.2).
+function withoutUrls(text) {
+  return String(text).replace(/https?:\/\/\S+/gi, '').replace(/ {2,}/g, ' ').trim()
+}
+
 // Server messages usually end in a full stop; drop it so ours can follow.
 function serverText(err) {
-  return String(err?.message ?? err).replace(/\.+$/, '')
+  return withoutUrls(err?.message ?? err).replace(/\.+$/, '')
 }
 
 function keyMessage(err) {
   return `SharpAPI did not accept the key (HTTP ${err.status}: ${serverText(err)}). `
-    + `Check your SharpAPI key: copy it again from ${DASHBOARD_URL}, or get a free key at ${PRICING_URL}.`
+    + 'Check your SharpAPI key: copy it again from your SharpAPI dashboard.'
 }
 
 /**
@@ -136,12 +140,12 @@ export async function explainError(err, book, lookupPlan) {
   if (status === 403 && code === 'tier_restricted') {
     const plan = await lookupPlan(book)
     if (plan) {
-      return `Skipped ${book}: it needs the ${planTitle(plan)} plan or higher, which your key does not have. Compare plans at ${PRICING_URL}.`
+      return `Skipped ${book}: it needs the ${planTitle(plan)} plan or higher, which your key does not have.`
     }
-    return `Skipped ${book}: ${serverText(err)}. Compare plans at ${PRICING_URL}.`
+    return `Skipped ${book}: ${serverText(err)}.`
   }
   if (status === 403 && code === 'book_not_selected') {
-    return `Skipped ${book}: it is not in the sportsbook selection on your SharpAPI dashboard. Add it at ${DASHBOARD_URL} and run again.`
+    return `Skipped ${book}: it is not in the sportsbook selection on your SharpAPI dashboard. Add it there and run again.`
   }
   if (status === 403) throw new FatalError(keyMessage(err))
   if (status === 410 || status === 503) return `Skipped ${book}: ${serverText(err)}.`
@@ -255,7 +259,7 @@ export async function runActor({ Actor, log, createClient, sleep }) {
       : `Saved ${saved} prices.`
     await Actor.exit(skipped.length > 0 ? `${note} ${skipped.join(' ')}` : note)
   } catch (err) {
-    const message = err instanceof FatalError ? err.message : `Unexpected error: ${err?.message ?? err}`
+    const message = err instanceof FatalError ? err.message : `Unexpected error: ${withoutUrls(err?.message ?? err)}`
     await Actor.fail(redact(message, apiKey))
   }
 }

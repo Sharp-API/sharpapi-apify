@@ -1,6 +1,6 @@
 # Sportsbook Odds (SharpAPI)
 
-Pull current sportsbook odds into an Apify dataset, one row per price. Choose the sportsbooks, a league, a market and whether you only want live games, and the actor saves every matching price from the [SharpAPI](https://sharpapi.io) odds API.
+Pull current sportsbook odds into an Apify dataset, one row per price. Choose the sportsbooks, a league, a market and whether you only want live games, and the actor saves every matching price from the SharpAPI odds API.
 
 The actor uses your own SharpAPI key. The free plan covers DraftKings and FanDuel, so you can start without paying anything. On the free plan every price is delayed by 60 seconds; paid plans add no delay.
 
@@ -12,7 +12,7 @@ The actor follows the API's pages until there are no more results, or until it h
 
 ## Get a free SharpAPI key
 
-1. Go to [sharpapi.io/pricing](https://sharpapi.io/pricing) and sign up for the free plan.
+1. Sign up for SharpAPI's free plan.
 2. Copy your API key from your SharpAPI dashboard.
 3. Paste it into the **SharpAPI key** field of this actor.
 
@@ -48,7 +48,7 @@ Example input:
 
 ## Output
 
-The fields keep the names the SharpAPI `GET /odds` endpoint uses, so the [API reference](https://docs.sharpapi.io) describes each one.
+The fields keep the names the SharpAPI `GET /odds` endpoint uses, so SharpAPI's API reference describes each one.
 
 | Field | Meaning |
 | --- | --- |

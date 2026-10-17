@@ -7,7 +7,7 @@
     "apiKey": {
       "title": "SharpAPI key",
       "type": "string",
-      "description": "Your own SharpAPI key. Get a free key at <a href=\"https://sharpapi.io/pricing\" target=\"_blank\">https://sharpapi.io/pricing</a>; the free plan covers DraftKings and FanDuel. The key is stored as a secret input and is never written to the log or the dataset.",
+      "description": "Your own SharpAPI key. The free SharpAPI plan covers DraftKings and FanDuel. The key is stored as a secret input and is never written to the log or the dataset.",
       "editor": "textfield",
       "isSecret": true
     },

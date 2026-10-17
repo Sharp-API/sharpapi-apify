@@ -2,7 +2,7 @@
 // it backs, so a README edit points at the test that has to change with it.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 import {
   DEFAULT_SPORTSBOOKS,
@@ -203,7 +203,7 @@ test('a sportsbook your plan lacks is skipped with the plan that unlocks it, and
   assert.equal(res.fail, undefined)
   assert.equal(res.pushed.length, 1)
   assert.match(res.exit, /Skipped pinnacle: it needs the Sharp plan or higher/)
-  assert.match(res.exit, /https:\/\/sharpapi\.io\/pricing/)
+  assert.doesNotMatch(res.exit, /https?:\/\//)
 })
 
 test('when every sportsbook is outside the plan, the run fails and names the plan', async () => {
@@ -265,12 +265,47 @@ test('the key field is a required secret input with no default value', () => {
   assert.ok(inputSchema.required.includes('apiKey'))
   assert.equal('default' in field, false)
   assert.equal('prefill' in field, false)
-  assert.match(field.description, /https:\/\/sharpapi\.io\/pricing/)
+  assert.doesNotMatch(field.description, /https?:\/\//)
   assert.doesNotMatch(readmeJsonBlocks[0].apiKey, /^sk_/)
 })
 
-test('a missing key fails the run with where to get one', async () => {
+test('a missing key fails the run and says to add it in the SharpAPI key field', async () => {
   const res = await run({}, () => page([]))
-  assert.match(res.fail, /https:\/\/sharpapi\.io\/pricing/)
+  assert.match(res.fail, /Add your SharpAPI key in the "SharpAPI key" field/)
+  assert.doesNotMatch(res.fail, /https?:\/\//)
   assert.equal(res.calls.length, 0)
+})
+
+// A link the API puts in an error message is cut before it reaches a run message.
+test('a tier skip with an unknown plan repeats the server reason without its link', async () => {
+  const res = await run({ apiKey: KEY, sportsbook: ['pinnacle'] }, () => {
+    throw apiError(403, 'tier_restricted', 'pinnacle is not on your plan, see https://sharpapi.io/pricing for plans.')
+  })
+  assert.match(res.fail, /Skipped pinnacle: pinnacle is not on your plan, see for plans\.$/)
+  assert.doesNotMatch(JSON.stringify([res.fail, res.lines]), /https?:\/\/|sharpapi\.io/i)
+})
+
+test('an unexpected error is reported without any link it carries', async () => {
+  const Actor = fakeActor({ apiKey: KEY, sportsbook: ['draftkings'] })
+  Actor.pushData = async () => {
+    throw new Error('upload failed, see https://example.invalid/status for details')
+  }
+  await runActor({ Actor, log: captureLog(), createClient: () => fakeClient(() => page([API_ROW])), sleep: async () => {} })
+  assert.equal(Actor.state.fail, 'Unexpected error: upload failed, see for details')
+})
+
+// Apify Store terms 2.2.4.2: nothing a Store user sees may link outside Apify.
+// The README is the Store page, .actor/*.json is the input form and listing,
+// and src/*.js writes every run message.
+test('the README, the .actor files and the source name no sharpapi.io address', () => {
+  const published = [
+    'README.md',
+    ...readdirSync(new URL('../.actor/', import.meta.url)).filter((f) => f.endsWith('.json')).map((f) => `.actor/${f}`),
+    ...readdirSync(new URL('../src/', import.meta.url)).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`),
+  ]
+  assert.ok(published.includes('.actor/input_schema.json') && published.includes('src/actor.js'), published.join(', '))
+  for (const file of published) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+    assert.doesNotMatch(text, /sharpapi\.io/i, file)
+  }
 })
